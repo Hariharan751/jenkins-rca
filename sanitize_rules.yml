@@ -1,0 +1,43 @@
+rules:
+  # AWS account IDs intentionally NOT redacted. They are not secrets —
+  # they appear in every ARN, CloudWatch URL, IAM ARN, and S3 bucket
+  # path. Masking them broke the agent's AWS describe tools: LLM saw
+  # arns like `arn:...:<account>:targetgroup/...` in the log_window
+  # and passed that placeholder verbatim to aws_describe_target_health,
+  # which boto3 rejected as a ValidationError. LLM then hallucinated
+  # "ARN missing in config.json" instead of fetching real target
+  # health. Real secrets (access keys, PATs, OAuth secrets) stay
+  # redacted via the rules below.
+  - name: aws_access_key
+    pattern: '\bA(K|S)IA[0-9A-Z]{16}\b'
+    replace: '<aws_key>'
+  - name: google_oauth_secret
+    pattern: 'GOCSPX-[A-Za-z0-9_-]{28}'
+    replace: '<gcp_secret>'
+  - name: anthropic_key
+    pattern: 'sk-ant-[A-Za-z0-9_-]+'
+    replace: '<anthropic_key>'
+  - name: gemini_key
+    pattern: 'AIzaSy[A-Za-z0-9_-]{33}'
+    replace: '<gemini_key>'
+  - name: bearer_token
+    pattern: 'Bearer\s+[A-Za-z0-9._~+/-]+=*'
+    replace: 'Bearer <redacted>'
+  - name: presigned_signature
+    pattern: 'X-Amz-Signature=[A-Fa-f0-9]+'
+    replace: 'X-Amz-Signature=<redacted>'
+  - name: pii_email
+    pattern: '\b[A-Za-z0-9._%+-]+@(?!blackbuck\.com\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    replace: '<external_email>'
+  - name: ssh_private_key
+    pattern: '-----BEGIN [A-Z]+ PRIVATE KEY-----[\s\S]+?-----END [A-Z]+ PRIVATE KEY-----'
+    replace: '<private_key>'
+  - name: github_pat
+    pattern: 'ghp_[A-Za-z0-9]{36}'
+    replace: '<github_pat>'
+  - name: jenkins_token
+    # Match only exact 32-char hex tokens with word boundaries; avoids matching
+    # git commit SHA prefixes (7-12 chars) or 40-char full SHAs which are common
+    # in build logs. Real Jenkins API tokens are exactly 32 hex chars.
+    pattern: '\b[0-9a-f]{32}\b(?![0-9a-f])'
+    replace: '<jenkins_token>'

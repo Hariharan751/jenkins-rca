@@ -1,0 +1,271 @@
+rules:
+  # Order matters — first match wins. Put SPECIFIC pipeline-stage failures
+  # before generic language-level errors (java.lang.*, Exception) which can
+  # appear incidentally (NewRelic NRQL refs, etc.).
+
+  # compliance — MUST match only on FAILURE lines, not info chatter.
+  # JiraDetails.groovy emits `=== Compliance: <action> ===` for every
+  # passing build (resolving SHA, checking onboarding, fetching ticket,
+  # all-passed banner). Old loose patterns (`Compliance:`,
+  # `Signed Off commit id`) matched these positive lines and routed
+  # successful Jira-Details + failed Build stage as "compliance failed"
+  # (Stagger Prod+1 build 5225 regression: Gradle daemon crashed in
+  # Build, classifier returned compliance, LLM hallucinated "status
+  # READY FOR RELEASE not in [READY FOR RELEASE, HOT FIX]").
+  # New patterns require explicit FAILURE marker (ERROR:/error
+  # function/has no/does not match/not acceptable).
+  - class: compliance
+    patterns:
+      - 'ERROR: Compliance:'
+      - "Compliance: Jira ticket .* has no Signed Off"
+      - 'Compliance: .* does not match'
+      - "Compliance: .* status '[^']+' is not acceptable"
+      - 'Compliance: .* clone-of-clone chain detected'
+      - 'Compliance: .* merged PR title does not contain'
+      - 'Parent ticket has no Signed Off commit id'
+      - "sign.?off.*missing"
+    description: "Compliance check failure — Jira sign-off / status / PR title / clone chain. Patterns require explicit FAILURE marker; passing builds emit `=== Compliance: <action> ===` info banners that must NOT trip this class."
+
+  # build_tool_crash — Gradle/Maven build daemon disappeared mid-task.
+  # Symptoms in the log are clear (daemon log dump + "daemon has
+  # disappeared" + "Build failed with an exception"). Primary cause is
+  # almost always JVM OOM (daemonOpts -Xmx512m default is tiny for
+  # large Spring modules), occasionally OS kill (oom-killer) or
+  # build-agent disk-full. Distinct from `dependency` (artifact
+  # resolution) and `java_runtime` (app-code exception) — fix is
+  # build-tooling config, not pipeline groovy + not app code.
+  # Stagger Prod+1 build 5225 case (indent-microservice v7.83).
+  - class: build_tool_crash
+    patterns:
+      - 'Gradle build daemon disappeared'
+      - 'The message received from the daemon indicates that the daemon has disappeared'
+      - 'Daemon vm is shutting down'
+      - 'Maven daemon was killed'
+      - 'mvnd.*daemon.*disappeared'
+    description: "Gradle/Maven build daemon crashed mid-task (usually JVM OOM on daemon heap; check daemonOpts -Xmx). Fix is build-tooling config, not pipeline or app code."
+
+  - class: canary_script_error
+    patterns:
+      - 'Traceback \(most recent call last\):[\s\S]*?canary\.py'
+      - 'canary\.py", line \d+, in'
+      - "TypeError.*round.*NoneType"
+      - 'KeyError.*canary'
+    description: "canary.py Python script crashed (NOT a service regression). Usually means NewRelic has no baseline data for the app, or canary.py has a defensive-code gap."
+
+  - class: canary_fail
+    patterns:
+      - 'Rollout back as Canary failed'
+      - 'Rolling Back as Result !=0'
+      - 'Canary Failed'
+      - 'Canary run failed for canary run id'
+      - '"canary_run_status":\s*"Fail"'
+    description: "Canary analysis failed — Kayenta canary config did not pass threshold"
+
+  # stale_tf_state MUST come before generic `terraform` — both match
+  # 'Terraform state contains resources' but this class is the more
+  # specific precheck-aborted-before-apply mode (checkTerraformStateFile
+  # found leftover rows in S3 tfstate for an env that should start empty,
+  # e.g. prodplusone). Action is targeted state cleanup, not apply debug.
+  # stale_tf_state = precheck checkTerraformStateFile ABORTED the pipeline
+  # because S3 tfstate is non-empty for an env that should start empty
+  # (prodplusone). MUST come before generic `terraform`. Pattern is the
+  # precheck FAILURE signal only — do NOT match on the precheck *name*
+  # alone, since that appears in every prodplusone build (build 4471 false
+  # positive: precheck ran + passed, apply failed → wrongly tagged
+  # stale_tf_state because 'Executing precheck: checkTerraformStateFile'
+  # matched).
+  # The 'Terraform state contains resources. Total resources' pattern was
+  # also a false-positive trap (build 5177): precheck emits that line as
+  # informational chatter during NORMAL stale-state cleanup recovery
+  # *before* deciding whether to abort or proceed. The actual abort signal
+  # is 'Stopping pipeline execution due to non-empty Terraform state'.
+  # deploy_script_error — parallel branch in Deploy/Rollout stage exits non-zero
+  # without matching a more specific service-level failure (canary/compliance).
+  # Common underlying causes:
+  #   - aws s3 cp chain malformed (missing && between commands → 2nd `aws s3`
+  #     becomes a positional arg to the 1st → CLI exits 2)
+  #   - SSM document failure (deploy_code.sh / app_restart.sh exits non-zero)
+  #   - credentials expired (profile divum / zinka 401 from AWS)
+  #   - tar/unzip artifact corruption
+  # Reference incident: build #5438 fms-toll-web —
+  # `aws s3 cp ... --profile divum` exited 2 on all 7 prod instances, was
+  # previously misclassified as health_check (`Error in Deploy_i-` lived
+  # in health_check pattern list) then as ssm (`Failed to execute SSH`
+  # appears once in the canary.groovy source code dump). This class must
+  # come BEFORE health_check / ssm / generic classes so the most specific
+  # parallel-branch failure signal wins. Pair with failure_locator output
+  # in main.py for the exact failing shell command.
+  - class: deploy_script_error
+    patterns:
+      - 'Error in Deploy_i-\S+: script returned exit code'
+      - 'Error in Rollout_i-\S+: script returned exit code'
+      - 'Deployment failed - skipping cleanup'
+    description: "Deploy/Rollout parallel branch script exited non-zero. Inspect failure_locator.failing_command for the exact shell command + per-branch console for stderr."
+
+  - class: stale_tf_state
+    patterns:
+      - 'Stopping pipeline execution due to non-empty Terraform state'
+    description: "Precheck checkTerraformStateFile aborted: S3 tfstate non-empty for a fresh-env stage (prodplusone). Operator must clean leftover state rows before pipeline can re-run."
+
+  # terraform MUST come before aws_limit — Terraform state/lock errors
+  # often contain AWS-API capacity strings in their body, and aws_limit
+  # would otherwise eat them. State + lock errors are operator-action
+  # (devops state surgery), distinct from a pure AWS quota bump.
+  - class: terraform
+    patterns:
+      - 'Error acquiring the state lock'
+      - 'ConditionalCheckFailedException.*conditional request failed'
+      - 'Error: configuring Terraform AWS Provider'
+      - 'Error: BucketRegionError'
+      - 'Error: Provider produced inconsistent final plan'
+      - 'Inconsistent dependency lock file'
+      - 'Error: Failed to install provider'
+      - 'Error: Backend initialization required'
+      - 'terraform.*Error: error inspecting states'
+      # Resource-exists conflicts (terraform apply tried to create a
+      # resource that already exists in AWS, e.g. orphan from prior run
+      # whose state was lost / not imported). Build 4471 case:
+      # `Error: ELBv2 Target Group (fms-toll-web-pp1-tg) already exists`
+      - 'Error: \w[\w ]+ \([^)]+\) already exists'
+      - 'Error: .*: resource already exists'
+      - 'A resource with the ID .* already exists'
+    description: "Terraform state / lock / apply / backend failure — see TerraformTroubleshoot.md. Includes resource-already-exists conflicts where AWS has the resource but terraform state lost it."
+
+  - class: aws_limit
+    patterns:
+      - 'TooMany[A-Z][a-zA-Z]+'
+      - 'LimitExceeded'
+      - 'QuotaExceeded'
+      - 'ResourceLimitExceeded'
+      - 'maximum number of'
+    description: "AWS service limit hit — bump quota or clean up unused resources"
+
+  - class: parse_error
+    patterns:
+      - 'parse error:'
+      - 'Invalid numeric literal'
+      - 'jq: error'
+      - 'Unexpected token'
+    description: "jq/JSON parse failure in config.json — check config.json for malformed numeric fields"
+
+  # config_validation MUST come before health_check — the 1.3 Validate
+  # Config Resources sub-stage of pre_deployment runs AWS describe-* on
+  # AMI / subnet / SG / key-pair / IAM-profile and emits a "Config
+  # resource validation failed" error when a config.json id no longer
+  # exists in AWS. Pre-deployment failures here are NOT the same as
+  # the later Health Validation stage; the fix is to update config.json
+  # (or create the missing AWS resource), not anything ALB-related.
+  # Build 61 of HotFix-NonCanary was wrongly classified as health_check
+  # before this class existed.
+  - class: config_validation
+    patterns:
+      - 'Config resource validation failed'
+      - "Key pair '[^']+' not found in AWS"
+      - "Subnet '[^']+' not found"
+      - "AMI '[^']+' not found"
+      - "Security group .* not found"
+      - "IAM profile .* not found"
+    description: "Stage 1.3 Validate Config Resources detected drift between config.json and AWS — AMI/subnet/SG/key-pair/IAM-profile no longer exists. Fix = update config.json to a real id, or create the missing AWS resource."
+
+  # health_check MUST come before java_runtime — ALB target group probe
+  # failures are pipeline-level failures specific to deploy/rollout, while
+  # java_runtime is a generic catch-all that can fire on stray references.
+  # NOTE — the loose `health.*fail` regex was dropped (May 2026). It
+  # was matching "Health Validation skipped due to earlier failure(s)"
+  # lines that appear in EVERY post-failure log (Jenkins emits "Stage
+  # 'X' skipped due to earlier failure(s)" for every downstream stage
+  # of a failed build). That made every config_validation / parse_error
+  # / scm failure in a build that had a "Health Validation" stage
+  # downstream get misrouted to health_check. The remaining patterns
+  # are specific to actual TG-poll failures.
+  - class: health_check
+    patterns:
+      - 'Health Status failed to move to healthy'
+      - 'iterations:\s*unhealthy'
+      - 'healthz.*[45][0-9][0-9]'
+      - 'curl.*Connection refused'
+      - 'supervisorctl.*FATAL'
+    description: "Service health check failed post-deploy — ALB target group never reached healthy threshold. NOTE: bare `Error in Deploy_i-` removed (build #5438 fms-toll-web aws s3 cp failure was misrouted as health_check); that pattern now triggers `deploy_script_error` instead."
+
+  # jenkins_agent_offline MUST come before java_runtime — the
+  # `cannot find current thread in CpsStepContext` exception is a
+  # Java-shaped trace but the real cause is the build agent (slave)
+  # disconnecting mid-step. java_runtime would mis-classify it as an
+  # app code bug. Symptom-vs-cause: NotSerializableException at the
+  # bottom of a slave-bounce log is the SECONDARY failure (Jenkins
+  # checkpoint during the bounce); the PRIMARY cause is the agent
+  # going offline. Build 15 of Stagger Scaling case.
+  - class: jenkins_agent_offline
+    patterns:
+      - 'slave-\d+ seems to be removed or offline'
+      - 'agent \S+ seems to be removed or offline'
+      - 'cannot find current thread in CpsStepContext'
+      - 'Connection was broken: java\.io\.IOException'
+    description: "Jenkins build agent (slave) disconnected mid-step. Primary fix is agent infrastructure (slave health, network); pipeline code hardening to avoid non-Serializable retained objects is a secondary defense."
+
+  - class: java_runtime
+    # Require BOTH a java class name AND exception/error context to avoid
+    # false-matching on NewRelic NRQL or log lines that just reference
+    # java.lang.* in passing. Note: bare `OutOfMemoryError` was removed —
+    # it falsely matched `-XX:+HeapDumpOnOutOfMemoryError` JVM startup
+    # flags in config.json dumps. Sanitizer now strips those lines, but
+    # we keep the pattern strict here as defense-in-depth.
+    #
+    # Groovy DSL / Jenkins pipeline script exceptions are also routed here
+    # — they're JVM-level method-resolution / type errors raised at the same
+    # layer as java.lang.* and benefit from the same "read the stack trace,
+    # cite the file:line" treatment. Without this, the classifier returned
+    # `unknown` for Groovy MissingMethodException and the LLM drifted into
+    # an `scm` narrative because of a `release/REQ-...` branch name.
+    patterns:
+      - 'java\.lang\.\S+Exception'
+      - 'java\.lang\.\S+Error'
+      - 'Exception in thread "[^"]+"'
+      - 'java\.lang\.OutOfMemoryError'
+      - 'java\.lang\.StackOverflowError'
+      - 'groovy\.lang\.\S+Exception'
+      - 'No signature of method:'
+      - 'unable to resolve class'
+    description: "Java/Groovy runtime exception — read the stack trace, cite the file:line"
+
+  - class: ssm
+    patterns:
+      - 'SSM command failed'
+      - 'ssm:SendCommand'
+      - 'Failed to execute SSH'
+    description: "SSM command execution failure"
+
+  - class: scm
+    patterns:
+      - 'git fetch failed'
+      - 'Could not read from remote'
+      - 'Authentication failed.*github'
+      - 'fatal: repository'
+    description: "Git/SCM failure — likely PAT expired or repo access issue"
+
+  - class: network
+    patterns:
+      - 'Connection refused'
+      - 'Connection timed out'
+      - 'No route to host'
+      - 'UnknownHostException'
+    description: "Network connectivity failure"
+
+  - class: dependency
+    patterns:
+      - 'Could not resolve'
+      - 'BUILD FAILED.*dependencies'
+      - 'Download failed'
+      - 'artifact not found'
+    description: "Build dependency resolution failure"
+
+  - class: timeout
+    patterns:
+      - 'Timeout waiting'
+      - 'timed out after'
+      - 'deadline exceeded'
+    description: "Operation timeout"
+
+  - class: unknown
+    patterns: []
+    description: "Could not classify — send full log window to Claude"

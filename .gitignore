@@ -1,0 +1,37 @@
+# Binary
+bin/
+*.exe
+.code-review-graph
+
+
+# Config with secrets
+.env
+.env.local
+*.env
+
+# Token file
+token
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test cache
+*.test
+
+# GoReleaser output
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/

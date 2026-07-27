@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeBBCTLRcaReadOnlyInOtherAccounts",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": [
+        "arn:aws:iam::075903075452:role/BBCTLRcaReadOnly",
+        "arn:aws:iam::597070799581:role/BBCTLRcaReadOnly",
+        "arn:aws:iam::476114138058:role/BBCTLRcaReadOnly"
+      ]
+    }
+  ]
+}

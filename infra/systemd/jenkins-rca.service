@@ -1,0 +1,23 @@
+[Unit]
+Description=Jenkins RCA service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/project/Jenkins-rca/infra/scripts/jenkins-rca-start.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jenkins-rca
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/cache/jenkins-rca /var/log/jenkins-rca /tmp
+
+[Install]
+WantedBy=multi-user.target

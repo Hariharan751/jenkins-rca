@@ -1,0 +1,2307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jenkins RCA Architecture Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+<style>
+:root {
+  --paper: #f5efe6;
+  --paper-2: #fffaf3;
+  --panel: rgba(255, 250, 243, 0.9);
+  --panel-strong: #fffdf8;
+  --ink: #1e2533;
+  --ink-soft: #5d6678;
+  --ink-faint: #7b8496;
+  --line: rgba(30, 37, 51, 0.12);
+  --line-strong: rgba(30, 37, 51, 0.18);
+  --accent: #bf4f2c;
+  --accent-soft: rgba(191, 79, 44, 0.11);
+  --teal: #1c7a70;
+  --teal-soft: rgba(28, 122, 112, 0.12);
+  --blue: #2a5ed2;
+  --blue-soft: rgba(42, 94, 210, 0.12);
+  --gold: #9a6b16;
+  --gold-soft: rgba(154, 107, 22, 0.12);
+  --olive: #5a6a2d;
+  --olive-soft: rgba(90, 106, 45, 0.12);
+  --rose: #9a4040;
+  --rose-soft: rgba(154, 64, 64, 0.12);
+  --shadow: 0 20px 50px rgba(39, 26, 16, 0.08);
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(28, 122, 112, 0.15), transparent 28%),
+    radial-gradient(circle at top right, rgba(42, 94, 210, 0.12), transparent 26%),
+    linear-gradient(180deg, #f8f3ea 0%, #f5efe6 46%, #f1ebdf 100%);
+  color: var(--ink);
+  font: 15px/1.65 "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(30, 37, 51, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 37, 51, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent 88%);
+  pointer-events: none;
+}
+
+a {
+  color: inherit;
+}
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.9em;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(42, 94, 210, 0.14);
+  background: rgba(42, 94, 210, 0.08);
+  color: var(--blue);
+}
+
+.page-shell {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 28px;
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar {
+  position: sticky;
+  top: 20px;
+  align-self: start;
+}
+
+.rail {
+  display: grid;
+  gap: 18px;
+}
+
+.rail-card {
+  background: rgba(255, 253, 248, 0.8);
+  border: 1px solid rgba(30, 37, 51, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.rail-card.brand {
+  padding: 22px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.eyebrow::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #db825d);
+  box-shadow: 0 0 0 5px rgba(191, 79, 44, 0.14);
+}
+
+.brand h1 {
+  font: 700 2rem/1.02 "Fraunces", Georgia, serif;
+  letter-spacing: -0.04em;
+  max-width: 8ch;
+}
+
+.brand p {
+  margin-top: 10px;
+  color: var(--ink-soft);
+}
+
+.status-pill {
+  margin-top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-pill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.rail-card.nav-card {
+  padding: 18px;
+}
+
+.nav-card h2,
+.rail-card.stats h2,
+.rail-card.notes h2 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+}
+
+.nav-list {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.nav-list a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: var(--ink-soft);
+  border-radius: 12px;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.nav-list a span:last-child {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.nav-list a:hover,
+.nav-list a:focus-visible {
+  background: rgba(42, 94, 210, 0.08);
+  color: var(--blue);
+  transform: translateX(3px);
+  outline: none;
+}
+
+.rail-card.stats,
+.rail-card.notes {
+  padding: 18px;
+}
+
+.mini-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-stat {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.mini-stat strong {
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.mini-stat span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.note-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  color: var(--ink-soft);
+}
+
+.note-list li {
+  padding-left: 15px;
+  position: relative;
+}
+
+.note-list li::before {
+  content: "";
+  position: absolute;
+  top: 0.65em;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.content {
+  display: grid;
+  gap: 24px;
+}
+
+.hero {
+  background:
+    linear-gradient(130deg, rgba(255, 253, 248, 0.95), rgba(255, 248, 237, 0.83)),
+    radial-gradient(circle at 85% 10%, rgba(42, 94, 210, 0.16), transparent 28%);
+  border: 1px solid rgba(30, 37, 51, 0.1);
+  border-radius: 34px;
+  box-shadow: var(--shadow);
+  padding: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  gap: 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  right: -80px;
+  bottom: -120px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(191, 79, 44, 0.12), transparent 58%),
+    radial-gradient(circle at 30% 30%, rgba(28, 122, 112, 0.11), transparent 52%);
+}
+
+.hero-copy,
+.hero-kpis {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-copy h2 {
+  margin-top: 4px;
+  font: 700 clamp(2.8rem, 4vw, 4.7rem)/0.94 "Fraunces", Georgia, serif;
+  letter-spacing: -0.05em;
+  max-width: 9.5ch;
+}
+
+.hero-copy p {
+  max-width: 62ch;
+  margin-top: 18px;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+
+.hero-tags {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.tag.accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(191, 79, 44, 0.18);
+}
+
+.tag.teal {
+  background: var(--teal-soft);
+  color: var(--teal);
+  border-color: rgba(28, 122, 112, 0.18);
+}
+
+.tag.blue {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-color: rgba(42, 94, 210, 0.18);
+}
+
+.tag.gold {
+  background: var(--gold-soft);
+  color: var(--gold);
+  border-color: rgba(154, 107, 22, 0.18);
+}
+
+.hero-kpis {
+  display: grid;
+  gap: 14px;
+}
+
+.kpi-panel {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+}
+
+.kpi-panel h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kpi-card {
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--panel-strong);
+  border: 1px solid rgba(30, 37, 51, 0.08);
+}
+
+.kpi-card strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.kpi-card span {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.kpi-strip {
+  display: grid;
+  gap: 10px;
+}
+
+.strip-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--panel-strong);
+  border: 1px solid rgba(30, 37, 51, 0.08);
+}
+
+.strip-item span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.strip-item strong {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.chapter {
+  background: var(--panel);
+  border: 1px solid rgba(30, 37, 51, 0.1);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  padding: 28px;
+}
+
+.chapter-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.chapter-index {
+  width: 54px;
+  min-width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(191, 79, 44, 0.16), rgba(42, 94, 210, 0.14));
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.chapter-title {
+  display: grid;
+  gap: 6px;
+}
+
+.chapter-title h3 {
+  font: 700 clamp(1.6rem, 2.3vw, 2.3rem)/1.02 "Fraunces", Georgia, serif;
+  letter-spacing: -0.04em;
+}
+
+.chapter-title p {
+  max-width: 80ch;
+  color: var(--ink-soft);
+}
+
+.chapter-badge {
+  align-self: flex-start;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.pipeline-map {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(270px, 1fr));
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  align-items: start;
+}
+
+.lane {
+  min-width: 270px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 16px;
+  align-content: start;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(30, 37, 51, 0.08);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  position: relative;
+  overflow: hidden;
+}
+
+.lane::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 26%);
+}
+
+.lane-ingest {
+  background:
+    radial-gradient(circle at top left, rgba(28, 122, 112, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.56);
+}
+
+.lane-context {
+  background:
+    radial-gradient(circle at top left, rgba(154, 107, 22, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.56);
+}
+
+.lane-reasoning {
+  background:
+    radial-gradient(circle at top left, rgba(42, 94, 210, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.56);
+}
+
+.lane-guardrails {
+  background:
+    radial-gradient(circle at top left, rgba(90, 106, 45, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.56);
+}
+
+.lane-output {
+  background:
+    radial-gradient(circle at top left, rgba(191, 79, 44, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.56);
+}
+
+.lane-head {
+  padding: 2px 2px 12px;
+  border-bottom: 1px solid rgba(30, 37, 51, 0.09);
+  position: relative;
+  z-index: 1;
+}
+
+.lane-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.lane-head span {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.lane-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  position: relative;
+  z-index: 1;
+  padding-left: 0;
+}
+
+.lane-stack::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 12px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(30, 37, 51, 0.12), rgba(30, 37, 51, 0.04));
+}
+
+.lane-meta {
+  position: relative;
+  z-index: 1;
+  padding-top: 12px;
+  border-top: 1px solid rgba(30, 37, 51, 0.08);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.stage-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  min-height: 156px;
+  position: relative;
+  box-shadow: 0 10px 24px rgba(39, 26, 16, 0.05);
+  margin-left: 18px;
+}
+
+.stage-card::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(30, 37, 51, 0.09);
+}
+
+.stage-card strong,
+.stage-card .file,
+.stage-card p,
+.stage-card .tone {
+  position: relative;
+  z-index: 1;
+}
+
+.stage-card .tone {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stage-card strong {
+  display: block;
+  padding-left: 48px;
+  font-size: 15px;
+}
+
+.stage-card .file {
+  padding-left: 48px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.stage-card p {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.stage-card.entry {
+  background: linear-gradient(180deg, rgba(28, 122, 112, 0.09), rgba(255, 255, 255, 0.68));
+}
+
+.stage-card.entry .tone {
+  color: var(--teal);
+}
+
+.stage-card.context {
+  background: linear-gradient(180deg, rgba(154, 107, 22, 0.1), rgba(255, 255, 255, 0.68));
+}
+
+.stage-card.context .tone {
+  color: var(--gold);
+}
+
+.stage-card.reasoning {
+  background: linear-gradient(180deg, rgba(42, 94, 210, 0.1), rgba(255, 255, 255, 0.68));
+}
+
+.stage-card.reasoning .tone {
+  color: var(--blue);
+}
+
+.stage-card.defense {
+  background: linear-gradient(180deg, rgba(90, 106, 45, 0.1), rgba(255, 255, 255, 0.68));
+}
+
+.stage-card.defense .tone {
+  color: var(--olive);
+}
+
+.stage-card.output {
+  background: linear-gradient(180deg, rgba(191, 79, 44, 0.1), rgba(255, 255, 255, 0.68));
+}
+
+.stage-card.output .tone {
+  color: var(--accent);
+}
+
+.parallel-layout,
+.loop-layout,
+.rag-layout,
+.code-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.parallel-layout {
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+}
+
+.primer-card,
+.panel-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+}
+
+.primer-card {
+  display: grid;
+  gap: 18px;
+}
+
+.primer-card h4,
+.panel-card h4,
+.caps-card h4,
+.table-card h4,
+.branch-card h4,
+.graph-card h4 {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+
+.primer-flow {
+  display: grid;
+  gap: 12px;
+}
+
+.flow-step {
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--panel-strong);
+  border: 1px solid rgba(30, 37, 51, 0.08);
+}
+
+.flow-step strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.flow-step p {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.parallel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.fetch-card {
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+
+.fetch-card .mode {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fetch-card strong {
+  font-size: 15px;
+}
+
+.fetch-card p,
+.fetch-card .latency {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.fetch-card .latency {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.fetch-card.sync .mode {
+  color: var(--accent);
+}
+
+.fetch-card.async .mode {
+  color: var(--blue);
+}
+
+.loop-layout {
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+}
+
+.loop-track {
+  display: grid;
+  gap: 12px;
+}
+
+.loop-step {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+}
+
+.loop-badge {
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  background: rgba(42, 94, 210, 0.09);
+  color: var(--blue);
+  text-align: center;
+}
+
+.loop-badge strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.loop-badge span {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.loop-step.trip .loop-badge {
+  background: rgba(191, 79, 44, 0.1);
+  color: var(--accent);
+}
+
+.loop-step.done .loop-badge {
+  background: rgba(28, 122, 112, 0.1);
+  color: var(--teal);
+}
+
+.loop-step strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.loop-step p {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.caps-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.caps-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cap-box {
+  background: var(--panel-strong);
+  border: 1px solid rgba(30, 37, 51, 0.08);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.cap-box strong {
+  display: block;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.cap-box span {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.defense-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.defense-list li {
+  padding: 10px 12px;
+  background: var(--panel-strong);
+  border: 1px solid rgba(30, 37, 51, 0.08);
+  border-radius: 14px;
+}
+
+.rag-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rag-board {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+}
+
+.rag-board header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.rag-board h4 {
+  font-size: 18px;
+}
+
+.chip {
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chip.offline {
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.chip.online {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.rag-board p {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.rag-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.rag-step {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--panel-strong);
+  border: 1px solid rgba(30, 37, 51, 0.08);
+}
+
+.rag-step .num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-weight: 700;
+  background: rgba(42, 94, 210, 0.1);
+  color: var(--blue);
+}
+
+.rag-step strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.rag-step span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.graph-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.graph-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.graph-node {
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.graph-node strong {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 14px;
+}
+
+.graph-node span {
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: right;
+}
+
+.graph-node.start {
+  background: rgba(28, 122, 112, 0.1);
+  border-color: rgba(28, 122, 112, 0.18);
+}
+
+.graph-node.end {
+  background: rgba(90, 106, 45, 0.1);
+  border-color: rgba(90, 106, 45, 0.18);
+}
+
+.graph-node.retry {
+  background: rgba(191, 79, 44, 0.1);
+  border-color: rgba(191, 79, 44, 0.18);
+}
+
+.graph-link {
+  height: 22px;
+  width: 2px;
+  margin: 0 auto;
+  background: linear-gradient(180deg, rgba(30, 37, 51, 0.16), rgba(30, 37, 51, 0.24));
+  position: relative;
+}
+
+.graph-link::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(30, 37, 51, 0.24);
+  border-bottom: 2px solid rgba(30, 37, 51, 0.24);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.graph-split {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.graph-branch {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(191, 79, 44, 0.1);
+  border: 1px dashed rgba(191, 79, 44, 0.35);
+}
+
+.graph-branch strong {
+  display: block;
+  margin-bottom: 4px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.graph-branch p {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.loop-note {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px dashed rgba(191, 79, 44, 0.35);
+  background: rgba(191, 79, 44, 0.07);
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.table-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+th,
+td {
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+tbody tr:hover td {
+  background: rgba(42, 94, 210, 0.04);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.yes {
+  color: var(--teal);
+  font-weight: 700;
+}
+
+.no {
+  color: var(--ink-faint);
+}
+
+.defense-grid,
+.cost-grid,
+.branch-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.defense-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.def-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.def-card .layer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.def-card h4 {
+  font-size: 18px;
+}
+
+.def-card p {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.def-card.coop-a .layer {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.def-card.coop-b .layer {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.def-card.mandatory .layer {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cost-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.cost-card,
+.branch-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 18px;
+}
+
+.cost-card strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: var(--accent);
+}
+
+.cost-card span {
+  display: block;
+  margin-top: 7px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.code-layout {
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+}
+
+.branch-grid {
+  align-content: start;
+}
+
+.branch-card strong {
+  display: block;
+  margin: 8px 0 6px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.branch-card p {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.branch-card .state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.branch-card .state.off {
+  background: rgba(30, 37, 51, 0.08);
+  color: var(--ink-soft);
+}
+
+.branch-card .state.on {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.branch-card .state.prod {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.footnote {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+footer {
+  padding: 10px 4px 24px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+footer strong {
+  color: var(--ink-soft);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero,
+.chapter {
+  animation: rise 0.55s ease both;
+}
+
+.chapter:nth-of-type(2) {
+  animation-delay: 0.04s;
+}
+
+.chapter:nth-of-type(3) {
+  animation-delay: 0.08s;
+}
+
+.chapter:nth-of-type(4) {
+  animation-delay: 0.12s;
+}
+
+.chapter:nth-of-type(5) {
+  animation-delay: 0.16s;
+}
+
+.chapter:nth-of-type(6) {
+  animation-delay: 0.2s;
+}
+
+.chapter:nth-of-type(7) {
+  animation-delay: 0.24s;
+}
+
+@media (max-width: 1280px) {
+  .page-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+  }
+
+  .rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .rail-card.brand {
+    grid-column: 1 / -1;
+  }
+
+  .hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  .pipeline-map,
+  .defense-grid,
+  .parallel-layout,
+  .loop-layout,
+  .rag-layout,
+  .code-layout,
+  .graph-split {
+    grid-template-columns: 1fr;
+  }
+
+  .parallel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .page-shell {
+    padding: 16px;
+  }
+
+  .rail {
+    grid-template-columns: 1fr;
+  }
+
+  .hero,
+  .chapter,
+  .rail-card.brand,
+  .rail-card.nav-card,
+  .rail-card.stats,
+  .rail-card.notes {
+    padding: 20px;
+  }
+
+  .chapter-head {
+    flex-direction: column;
+  }
+
+  .kpi-grid,
+  .caps-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .loop-step {
+    grid-template-columns: 1fr;
+  }
+
+  .loop-badge {
+    min-height: 74px;
+  }
+
+  .graph-node {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .graph-node span {
+    text-align: left;
+  }
+}
+</style>
+</head>
+<body>
+<div class="page-shell">
+  <aside class="sidebar">
+    <div class="rail">
+      <section class="rail-card brand" aria-label="Document identity">
+        <div class="eyebrow">Architecture brief</div>
+        <h1>Jenkins RCA</h1>
+        <p>Webhook to RCA JSON, re-laid as an operations briefing instead of a long wall of boxes.</p>
+        <div class="status-pill">feature/jenkins-rca-agent-RAG-LANG</div>
+      </section>
+
+      <nav class="rail-card nav-card" aria-label="Section navigation">
+        <h2>On this page</h2>
+        <ul class="nav-list">
+          <li><a href="#pipeline"><span>Pipeline</span><span>01</span></a></li>
+          <li><a href="#parallel"><span>Parallel fetch</span><span>02</span></a></li>
+          <li><a href="#loop"><span>Agent loop</span><span>03</span></a></li>
+          <li><a href="#rag"><span>RAG flow</span><span>04</span></a></li>
+          <li><a href="#langgraph"><span>LangGraph</span><span>05</span></a></li>
+          <li><a href="#defense"><span>Defense</span><span>06</span></a></li>
+          <li><a href="#classes"><span>Class matrix</span><span>07</span></a></li>
+          <li><a href="#signals"><span>Signals</span><span>08</span></a></li>
+          <li><a href="#cost"><span>Cost model</span><span>09</span></a></li>
+          <li><a href="#code"><span>Code inventory</span><span>10</span></a></li>
+        </ul>
+      </nav>
+
+      <section class="rail-card stats" aria-label="Key metrics">
+        <h2>Quick numbers</h2>
+        <div class="mini-grid">
+          <div class="mini-stat">
+            <strong>&lt; 60s</strong>
+            <span>target end-to-end</span>
+          </div>
+          <div class="mini-stat">
+            <strong>$0.30</strong>
+            <span>mean RCA cost</span>
+          </div>
+          <div class="mini-stat">
+            <strong>17 / 18</strong>
+            <span>LangGraph-enforced classes</span>
+          </div>
+          <div class="mini-stat">
+            <strong>298</strong>
+            <span>docops + audit chunks indexed</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail-card notes" aria-label="Document notes">
+        <h2>Reading lens</h2>
+        <ul class="note-list">
+          <li>The content is unchanged in substance, but grouped into stronger architecture blocks.</li>
+          <li>Each chapter explains one system layer: ingestion, reasoning, retrieval, control, validation, and operations.</li>
+          <li>Every diagram stays one-file and responsive, so the page still opens cleanly without external assets.</li>
+        </ul>
+      </section>
+    </div>
+  </aside>
+
+  <main class="content">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="eyebrow">System overview</div>
+        <h2 id="hero-title">Architecture for the Jenkins auto-RCA path.</h2>
+        <p>Jenkins pipeline auto-RCA service. Webhook to classifier to RAG-augmented agent loop to LangGraph gates to validators to audit. The page now reads like an architecture brief instead of a dense technical dump, while preserving the same implementation details.</p>
+        <div class="hero-tags">
+          <span class="tag accent">Phases 1-7 shipped</span>
+          <span class="tag teal">3-layer placeholder defense</span>
+          <span class="tag blue">232 docops + 66 audit chunks</span>
+          <span class="tag gold">Production branch active</span>
+        </div>
+      </div>
+
+      <div class="hero-kpis">
+        <div class="kpi-panel">
+          <h3>Operational envelope</h3>
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <strong>12</strong>
+              <span>pipeline stages</span>
+            </div>
+            <div class="kpi-card">
+              <strong>25</strong>
+              <span>tool calls max</span>
+            </div>
+            <div class="kpi-card">
+              <strong>180s</strong>
+              <span>wall-clock budget</span>
+            </div>
+            <div class="kpi-card">
+              <strong>$5</strong>
+              <span>panic killswitch</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="kpi-panel">
+          <h3>Current posture</h3>
+          <div class="kpi-strip">
+            <div class="strip-item">
+              <span>Reasoning path</span>
+              <strong>OpenAI fn-calling</strong>
+            </div>
+            <div class="strip-item">
+              <span>RAG store</span>
+              <strong>Postgres + pgvector</strong>
+            </div>
+            <div class="strip-item">
+              <span>Typical loop</span>
+              <strong>&le; 3 iterations</strong>
+            </div>
+            <div class="strip-item">
+              <span>Slack output</span>
+              <strong>rcaAlert + JSON reply</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" id="pipeline">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">01</div>
+          <div class="chapter-title">
+            <h3>End-to-end pipeline</h3>
+            <p>Linear flow across 12 stages, re-grouped into architecture lanes so it is easier to see where ingestion stops, reasoning begins, and guardrails take over.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Webhook to response</div>
+      </div>
+
+      <div class="pipeline-map">
+        <div class="lane lane-ingest">
+          <div class="lane-head">
+            <strong>Ingest</strong>
+            <span>Trust the request, fetch the build, identify the class.</span>
+          </div>
+          <div class="lane-stack">
+            <article class="stage-card entry">
+              <div class="tone">01 entry</div>
+              <strong>HTTP entry</strong>
+              <div class="file">main.py</div>
+              <p>HMAC verify, dedup cache, and per-request cost cap.</p>
+            </article>
+            <article class="stage-card entry">
+              <div class="tone">02 ingest</div>
+              <strong>Fetch log</strong>
+              <div class="file">jenkins.py</div>
+              <p>Pull <code>consoleText</code>, <code>build_meta</code>, and <code>stage_errors</code>.</p>
+            </article>
+            <article class="stage-card entry">
+              <div class="tone">03 classify</div>
+              <strong>Classify</strong>
+              <div class="file">classifier.py</div>
+              <p>YAML regex routing across 18 classes in under 1 ms.</p>
+            </article>
+          </div>
+          <div class="lane-meta">3 stages · trust + fetch + route</div>
+        </div>
+
+        <div class="lane lane-context">
+          <div class="lane-head">
+            <strong>Context</strong>
+            <span>Build a high-signal primer before the model starts reasoning.</span>
+          </div>
+          <div class="lane-stack">
+            <article class="stage-card context">
+              <div class="tone">04 primer</div>
+              <strong>Build primer</strong>
+              <div class="file">agent._build_primer</div>
+              <p>Launch four context fetches in parallel and assemble the system preface.</p>
+            </article>
+          </div>
+          <div class="lane-meta">1 stage · primer fan-out</div>
+        </div>
+
+        <div class="lane lane-reasoning">
+          <div class="lane-head">
+            <strong>Reasoning</strong>
+            <span>LLM loop plus graph-based correctness gates.</span>
+          </div>
+          <div class="lane-stack">
+            <article class="stage-card reasoning">
+              <div class="tone">05 agent</div>
+              <strong>Agent loop</strong>
+              <div class="file">agent.run_agent</div>
+              <p>OpenAI function-calling path. Three iterations or fewer is typical.</p>
+            </article>
+            <article class="stage-card reasoning">
+              <div class="tone">06 retry</div>
+              <strong>Schema retry</strong>
+              <div class="file">agent post-parse</div>
+              <p>One automatic retry if required output keys are missing.</p>
+            </article>
+            <article class="stage-card reasoning">
+              <div class="tone">07 gates</div>
+              <strong>LangGraph gates</strong>
+              <div class="file">gates.py</div>
+              <p>Four nodes plus <code>corrective_reiter</code> for controlled correction.</p>
+            </article>
+          </div>
+          <div class="lane-meta">3 stages · reason + retry + gate</div>
+        </div>
+
+        <div class="lane lane-guardrails">
+          <div class="lane-head">
+            <strong>Guardrails</strong>
+            <span>Strip hallucinations, repair substitutions, and protect operators.</span>
+          </div>
+          <div class="lane-stack">
+            <article class="stage-card defense">
+              <div class="tone">08 validate</div>
+              <strong>Hard validators</strong>
+              <div class="file">agent validators</div>
+              <p>Drop fake evidence, runbook claims, and hallucinated snippets.</p>
+            </article>
+            <article class="stage-card defense">
+              <div class="tone">09 gate</div>
+              <strong>Slave-ID gate</strong>
+              <div class="file">jenkins_node_info</div>
+              <p>Substitute real <code>instance_id</code> values or drop unsafe commands.</p>
+            </article>
+            <article class="stage-card defense">
+              <div class="tone">10 sanitize</div>
+              <strong>value_validator</strong>
+              <div class="file">value_validator.py</div>
+              <p>Port, health-path, and log-path substitution before release.</p>
+            </article>
+          </div>
+          <div class="lane-meta">3 stages · verify + repair + protect</div>
+        </div>
+
+        <div class="lane lane-output">
+          <div class="lane-head">
+            <strong>Output</strong>
+            <span>Persist the audit record and ship the response outward.</span>
+          </div>
+          <div class="lane-stack">
+            <article class="stage-card output">
+              <div class="tone">11 persist</div>
+              <strong>Persist</strong>
+              <div class="file">audit.py + outcome_log.py</div>
+              <p>Write audit JSON and append failure signals into <code>outcomes.sqlite</code>.</p>
+            </article>
+            <article class="stage-card output">
+              <div class="tone">12 respond</div>
+              <strong>Response</strong>
+              <div class="file">FastAPI</div>
+              <p>Return JSON to Jenkins and send the Slack <code>rcaAlert</code>.</p>
+            </article>
+          </div>
+          <div class="lane-meta">2 stages · persist + notify</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" id="parallel">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">02</div>
+          <div class="chapter-title">
+            <h3>Parallel context fetch</h3>
+            <p>Stage 04 is the first big latency win. The primer is assembled by parallel lookups, so wall time follows the slowest request instead of the sum of all requests.</p>
+          </div>
+        </div>
+        <div class="chapter-badge"><code>_build_primer</code></div>
+      </div>
+
+      <div class="parallel-layout">
+        <div class="primer-card">
+          <h4>Primer assembly</h4>
+          <div class="primer-flow">
+            <div class="flow-step">
+              <strong>Input envelope</strong>
+              <p><code>log_window</code>, <code>error_class</code>, and <code>build_meta</code> enter as the seed context.</p>
+            </div>
+            <div class="flow-step">
+              <strong>Concurrent fan-out</strong>
+              <p>Service config, Jira facts, Jenkins node facts, and retrieval snippets are launched in parallel.</p>
+            </div>
+            <div class="flow-step">
+              <strong>One primer, one message</strong>
+              <p>The final primer is injected as the system message used for agent iteration 0.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h4>Fetch set</h4>
+          <div class="parallel-grid">
+            <article class="fetch-card sync">
+              <div class="mode">sync</div>
+              <strong>service.lookup()</strong>
+              <p>Reads <code>config.json</code> from the jenkins_pipeline repo for AWS account, region, port, log path, and Slack channel.</p>
+              <div class="latency">Latency: a few ms</div>
+            </article>
+            <article class="fetch-card async">
+              <div class="mode">async</div>
+              <strong>jira_prefetch()</strong>
+              <p>Extracts Jira keys from the log and pulls ticket status plus custom fields to kill compliance-status hallucination.</p>
+              <div class="latency">Latency: ~400 ms per key</div>
+            </article>
+            <article class="fetch-card async">
+              <div class="mode">async</div>
+              <strong>jenkins_node_prefetch()</strong>
+              <p>Finds <code>slave-N</code>, calls <code>/computer/&lt;name&gt;/api/json</code>, and injects the real <code>instance_id</code> immediately.</p>
+              <div class="latency">Latency: ~200 ms</div>
+            </article>
+            <article class="fetch-card async">
+              <div class="mode">async</div>
+              <strong>rag_inject()</strong>
+              <p>Anchors on the last <code>Error:</code> line plus 500 chars of context, embeds it, and retrieves the top-5 corpus hits.</p>
+              <div class="latency">Latency: ~300 ms</div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" id="loop">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">03</div>
+          <div class="chapter-title">
+            <h3>Agent iteration loop</h3>
+            <p>The reasoning core uses OpenAI <code>gpt-4o</code> function-calling. Iteration 0 gathers broad context, later iterations drill into specifics, and the server refuses duplicate tool calls.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Tool loop</div>
+      </div>
+
+      <div class="loop-layout">
+        <div class="loop-track">
+          <article class="loop-step">
+            <div class="loop-badge">
+              <strong>0</strong>
+              <span>iter</span>
+            </div>
+            <div>
+              <strong>Parallel fan-out</strong>
+              <p><code>read_runbook(class)</code>, <code>get_jenkins_job_config</code>, <code>list_job_flows</code>, <code>repo_read_file</code>, and <code>aws_describe</code> can all land in the same assistant turn and execute concurrently.</p>
+            </div>
+          </article>
+          <article class="loop-step">
+            <div class="loop-badge">
+              <strong>1</strong>
+              <span>iter</span>
+            </div>
+            <div>
+              <strong>Drill helpers</strong>
+              <p><code>repo_find_function</code>, <code>repo_search</code>, <code>jenkins_node_info</code>, and <code>rag_search</code> sharpen the hypothesis based on results from the first sweep.</p>
+            </div>
+          </article>
+          <article class="loop-step">
+            <div class="loop-badge">
+              <strong>2</strong>
+              <span>iter</span>
+            </div>
+            <div>
+              <strong>Confirm and emit JSON</strong>
+              <p>Final output uses <code>response_format=json_object</code> with required keys for summary, stage, class, cause, evidence, and fix.</p>
+            </div>
+          </article>
+          <article class="loop-step trip">
+            <div class="loop-badge">
+              <strong>&#8635;</strong>
+              <span>gate</span>
+            </div>
+            <div>
+              <strong>Gate trip path</strong>
+              <p>If a LangGraph gate fires, <code>corrective_reiter</code> performs one extra tool iteration plus one forced-final pair. Retry budget is 1 and cost is usually about $0.10 extra.</p>
+            </div>
+          </article>
+          <article class="loop-step done">
+            <div class="loop-badge">
+              <strong>&#10003;</strong>
+              <span>done</span>
+            </div>
+            <div>
+              <strong>Final RCA JSON</strong>
+              <p>The agent exits, validators run, signals are recorded, and the response moves to persistence and delivery.</p>
+            </div>
+          </article>
+        </div>
+
+        <aside class="caps-card">
+          <h4>Hard caps</h4>
+          <div class="caps-grid">
+            <div class="cap-box">
+              <strong>25</strong>
+              <span>tool calls per RCA</span>
+            </div>
+            <div class="cap-box">
+              <strong>180s</strong>
+              <span>wall-clock budget</span>
+            </div>
+            <div class="cap-box">
+              <strong>$5</strong>
+              <span>panic killswitch</span>
+            </div>
+            <div class="cap-box">
+              <strong>3</strong>
+              <span>iterations typical</span>
+            </div>
+          </div>
+          <h4>Defenses</h4>
+          <ul class="defense-list">
+            <li>Tool dedup cache uses a fingerprint of name plus args.</li>
+            <li>Duplicate call attempts return an explicit server-side error.</li>
+            <li><code>text_tool_calls</code> rescue handles the model writing tool calls as text.</li>
+            <li>Cap or wall-clock breach triggers forced finalization automatically.</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="chapter" id="rag">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">04</div>
+          <div class="chapter-title">
+            <h3>RAG flow with Postgres and pgvector</h3>
+            <p>Retrieval uses an HNSW cosine index over <code>text-embedding-3-small</code> vectors. Every RCA gets retrieval context injected at iteration 0.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Auto-injected memory</div>
+      </div>
+
+      <div class="rag-layout">
+        <article class="rag-board">
+          <header>
+            <h4>RAG indexing</h4>
+            <span class="chip offline">offline · cron 2h</span>
+          </header>
+          <p>Sync script self-pulls the repo, indexes docops and audits, then restarts the service.</p>
+          <div class="rag-steps">
+            <div class="rag-step">
+              <div class="num">1</div>
+              <div>
+                <strong>Discover sources</strong>
+                <span><code>docops/runbooks/*.md</code>, <code>docops/job_flows/*.md</code>, <code>docops/*.md</code>, and <code>/var/log/jenkins-rca/&lt;uuid&gt;.json</code> that already match RCA shape.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">2</div>
+              <div>
+                <strong>Chunk on H2 splits</strong>
+                <span>Target around 2K chars with 200-char overlap and section headings preserved for retrieval signal.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">3</div>
+              <div>
+                <strong>Embed in batches</strong>
+                <span>OpenAI <code>text-embedding-3-small</code> with batches up to 100, stable on retry.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">4</div>
+              <div>
+                <strong>Upsert <code>rca_chunks</code></strong>
+                <span>Rows carry id, source metadata, chunk index, text, <code>vector[1536]</code>, and score.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">5</div>
+              <div>
+                <strong>HNSW rebuild</strong>
+                <span>Cosine index with <code>ef_construction=200</code>; query latency is about 5 ms at 500 chunks.</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="rag-board">
+          <header>
+            <h4>RAG query</h4>
+            <span class="chip online">online · per RCA</span>
+          </header>
+          <p>Runs concurrently with primer fan-out and lands inside the system prompt as a <code>## retrieved.rag</code> block.</p>
+          <div class="rag-steps">
+            <div class="rag-step">
+              <div class="num">1</div>
+              <div>
+                <strong>Anchor query slice</strong>
+                <span>Use the last <code>Error:</code> line plus 500 chars of context, or the last 1.5K chars if no error marker exists.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">2</div>
+              <div>
+                <strong>Embed cache check</strong>
+                <span><code>sha256(query)</code> hits diskcache for 24 hours; misses trigger the OpenAI embedding call.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">3</div>
+              <div>
+                <strong>HNSW cosine search</strong>
+                <span>Top-5 retrieval, filtered per R3.1 so known classes prefer runbook plus audit while unknown also includes general docs.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">4</div>
+              <div>
+                <strong>Format hits</strong>
+                <span>Render a bulleted retrieval block with source path, score, and excerpt length around 500 chars.</span>
+              </div>
+            </div>
+            <div class="rag-step">
+              <div class="num">5</div>
+              <div>
+                <strong>Inject into primer</strong>
+                <span>Past RCA hits often score 0.71+, above runbooks at 0.4-0.6, which makes retrieval act like semantic memory.</span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="chapter" id="langgraph">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">05</div>
+          <div class="chapter-title">
+            <h3>LangGraph state machine</h3>
+            <p>The graph replaces nested branching with routable validation nodes. Adding a new gate now means adding a node and conditional edges instead of extending a fragile if-stack.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Lazy import safe</div>
+      </div>
+
+      <div class="graph-card">
+        <h4>Gate sequence</h4>
+        <div class="graph-stack">
+          <div class="graph-node start">
+            <strong>START</strong>
+            <span>Enter the graph after the agent produces a candidate RCA.</span>
+          </div>
+          <div class="graph-link"></div>
+          <div class="graph-node">
+            <strong>_check_schema</strong>
+            <span>Missing summary, stage, class, cause, evidence, or suggested fix?</span>
+          </div>
+          <div class="graph-link"></div>
+          <div class="graph-node">
+            <strong>_check_runbook_fetched</strong>
+            <span>Class is in <code>MANDATORY_RUNBOOK</code> but the runbook was never read.</span>
+          </div>
+          <div class="graph-split">
+            <div class="graph-branch">
+              <strong>trip -> corrective_reiter</strong>
+              <p>Append the gate reason, perform one more tool iteration, force a JSON answer, and decrement <code>retry_budget</code>.</p>
+            </div>
+            <div>
+              <div class="graph-node retry">
+                <strong>_check_primary_secondary</strong>
+                <span><code>jenkins_agent_offline</code> must identify PRIMARY or SECONDARY when relevant.</span>
+              </div>
+            </div>
+          </div>
+          <div class="graph-link"></div>
+          <div class="graph-node">
+            <strong>_check_compliance_hallucination</strong>
+            <span>Reject compliance claims that contradict pre-fetched Jira truth.</span>
+          </div>
+          <div class="graph-link"></div>
+          <div class="graph-node end">
+            <strong>END</strong>
+            <span>Validated RCA moves to final hard validators and audit logging.</span>
+          </div>
+        </div>
+        <div class="loop-note">Loopback: if <code>retry_budget &gt; 0</code>, <code>corrective_reiter</code> re-enters the gate path beginning at <code>_check_runbook_fetched</code>.</div>
+      </div>
+
+      <div class="table-card">
+        <h4>Threaded state (TypedDict)</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>field</th>
+                <th>purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>rca</code></td><td>Parsed RCA dict, mutated by graph nodes.</td></tr>
+              <tr><td><code>error_class</code></td><td>Classifier output used by gates and prompt rules.</td></tr>
+              <tr><td><code>read_runbooks</code></td><td>Set of runbook names fetched during the agent loop.</td></tr>
+              <tr><td><code>messages</code></td><td>OpenAI history so gates can append corrective instructions.</td></tr>
+              <tr><td><code>client / model / tools / tool_dispatch</code></td><td>Plumbing passed into <code>corrective_reiter</code> for the retry turn.</td></tr>
+              <tr><td><code>failure_signals</code></td><td>Accumulated telemetry for audit and dashboards.</td></tr>
+              <tr><td><code>retry_budget</code></td><td>Defaults to 1; each gate-triggered retry decrements it.</td></tr>
+              <tr><td><code>tokens_in / tokens_out / tool_call_count</code></td><td>Cost and usage tracking.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" id="defense">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">06</div>
+          <div class="chapter-title">
+            <h3>Three-layer slave-ID placeholder defense</h3>
+            <p>The goal is to prevent <code>bbctl shell &lt;slave-instance-id&gt;</code> from ever reaching an operator. Each layer should reduce the amount of cleanup the next layer has to do.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Operator safety</div>
+      </div>
+
+      <div class="defense-grid">
+        <article class="def-card coop-a">
+          <span class="layer">Layer 1 · cooperative</span>
+          <h4>Primer pre-fetch</h4>
+          <p>When the log mentions <code>slave-N</code>, the system calls the Jenkins node API and injects a <code>## jenkins.node</code> block with the real <code>instance_id</code> before iteration 0 starts.</p>
+        </article>
+        <article class="def-card coop-b">
+          <span class="layer">Layer 2 · cooperative</span>
+          <h4>Mandatory prompt rule</h4>
+          <p><code>rca_common.md</code> explicitly says that a log containing <code>slave-N</code> must trigger <code>jenkins_node_info</code>, supported by examples and anti-patterns.</p>
+        </article>
+        <article class="def-card mandatory">
+          <span class="layer">Layer 3 · mandatory</span>
+          <h4>Server gate</h4>
+          <p>After final JSON generation, the server scans commands for <code>&lt;slave-instance-id&gt;</code>, substitutes the real value if known, or drops the command and appends an ops-contact fallback.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="chapter" id="classes">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">07</div>
+          <div class="chapter-title">
+            <h3>Class coverage matrix</h3>
+            <p>Seventeen of the eighteen classifier classes go through the agent plus LangGraph path. <code>unknown</code> is the only one-shot exception because there is no specific runbook to enforce.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Coverage</div>
+      </div>
+
+      <div class="table-card">
+        <h4>Classifier and runbook routing</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>class</th>
+                <th>classifier</th>
+                <th>runbook</th>
+                <th>AGENT_CLASSES</th>
+                <th>MANDATORY_RUNBOOK</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>compliance</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>build_tool_crash</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>canary_fail</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>canary_script_error</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>health_check</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>terraform</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>stale_tf_state</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>aws_limit</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>config_validation</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>jenkins_agent_offline</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>java_runtime</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>scm</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>parse_error</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>timeout</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>network</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>dependency</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>ssm</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td><td class="yes">YES</td></tr>
+              <tr><td>unknown</td><td class="yes">YES</td><td class="yes">YES</td><td class="no">one-shot</td><td class="no">one-shot</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" id="signals">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">08</div>
+          <div class="chapter-title">
+            <h3>Failure signals catalog</h3>
+            <p>Every RCA emits zero or more signals to <code>outcomes.sqlite</code>. This is the vocabulary the system uses to detect drift, retries, and hallucination cleanup across production traffic.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Telemetry</div>
+      </div>
+
+      <div class="table-card">
+        <h4>Signal vocabulary</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>signal</th>
+                <th>layer</th>
+                <th>meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>force_final_iter_cap</code></td><td>agent loop</td><td>25-tool-call cap fired.</td></tr>
+              <tr><td><code>force_final_wall_clock</code></td><td>agent loop</td><td>180s deadline hit.</td></tr>
+              <tr><td><code>force_final_cost_cap</code></td><td>agent loop</td><td>$5 panic killswitch fired.</td></tr>
+              <tr><td><code>dup_call_warning</code></td><td>agent loop</td><td>LLM re-issued an identical tool call.</td></tr>
+              <tr><td><code>dup_call_rejected</code></td><td>agent loop</td><td>Second or later repeat caused an error response.</td></tr>
+              <tr><td><code>text_tool_calls_rescue</code></td><td>agent loop</td><td>Tool calls appeared as plain text and were rescued.</td></tr>
+              <tr><td><code>final_json_parse_failed</code></td><td>parse</td><td>Final text could not be parsed as JSON.</td></tr>
+              <tr><td><code>malformed_final_schema</code></td><td>schema gate</td><td>Required keys were missing and a retry fired.</td></tr>
+              <tr><td><code>ultimatum_gate_triggered</code></td><td>LangGraph</td><td>A graph gate fired and triggered re-iteration.</td></tr>
+              <tr><td><code>compliance_status_hallucination</code></td><td>LangGraph</td><td>The model contradicted pre-fetched Jira status.</td></tr>
+              <tr><td><code>hallucinated_file_evidence</code></td><td>validator</td><td>Cited a file that was never read.</td></tr>
+              <tr><td><code>hallucinated_snippet</code></td><td>validator</td><td>Quoted snippet text that is not present in the file.</td></tr>
+              <tr><td><code>runbook_evidence_dropped</code></td><td>validator</td><td>Cited a runbook that was never fetched.</td></tr>
+              <tr><td><code>low_evidence_count</code></td><td>validator</td><td>Fewer than three evidence items remained.</td></tr>
+              <tr><td><code>hallucinated_id_in_command</code></td><td>validator</td><td>Command included a placeholder identifier.</td></tr>
+              <tr><td><code>tier_autobumped_terraform_restricted</code></td><td>validator</td><td>Terraform command risk tier was auto-bumped.</td></tr>
+              <tr><td><code>server_substituted_slave_id</code></td><td>Phase 7</td><td>Server resolved the true slave instance ID.</td></tr>
+              <tr><td><code>server_dropped_unresolvable_slave_cmd</code></td><td>Phase 7</td><td>Slave was gone, so the command was dropped and fallback guidance was added.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" id="cost">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">09</div>
+          <div class="chapter-title">
+            <h3>Cost model</h3>
+            <p>The embedding layer is cheap. Most of the spend sits in the reasoning loop, with retries and corrective passes adding small but noticeable increments.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Production mean: $0.30</div>
+      </div>
+
+      <div class="cost-grid">
+        <div class="cost-card"><strong>$0.00003</strong><span>Embed one anchor query slice.</span></div>
+        <div class="cost-card"><strong>$0.0001</strong><span>Embed one chunk during re-index.</span></div>
+        <div class="cost-card"><strong>$0.07</strong><span>Re-index the full docops set at roughly 230 chunks.</span></div>
+        <div class="cost-card"><strong>$0.10</strong><span>Re-index 100 newly added audits.</span></div>
+        <div class="cost-card"><strong>$0.20-$0.30</strong><span>Standard agent-path RCA when gates pass.</span></div>
+        <div class="cost-card"><strong>+$0.05-$0.10</strong><span>One gate-triggered retry pair.</span></div>
+        <div class="cost-card"><strong>+$0.05</strong><span>Schema-completion retry.</span></div>
+        <div class="cost-card"><strong>~5 ms</strong><span>Vector search latency through HNSW.</span></div>
+        <div class="cost-card"><strong>~50 MB</strong><span>Postgres footprint near 500 chunks.</span></div>
+        <div class="cost-card"><strong>$5</strong><span>Per-RCA panic killswitch.</span></div>
+      </div>
+    </section>
+
+    <section class="chapter" id="code">
+      <div class="chapter-head">
+        <div style="display: flex; gap: 16px;">
+          <div class="chapter-index">10</div>
+          <div class="chapter-title">
+            <h3>Code-base inventory</h3>
+            <p>About 9,200 lines of Python under <code>jenkins_rca/</code> and about 3,000 lines of markdown under <code>docops/</code>. The main code list stays intact, with branch posture pulled into a side rail.</p>
+          </div>
+        </div>
+        <div class="chapter-badge">Repo map</div>
+      </div>
+
+      <div class="code-layout">
+        <div class="table-card">
+          <h4>Primary files</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>path</th>
+                  <th>lines</th>
+                  <th>purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><code>jenkins_rca/main.py</code></td><td>~632</td><td>FastAPI entry, route dispatch, and <code>AGENT_CLASSES</code>.</td></tr>
+                <tr><td><code>jenkins_rca/agent.py</code></td><td>~2080</td><td>OpenAI tool loop, primer assembly, validators, and slave substitution.</td></tr>
+                <tr><td><code>jenkins_rca/gates.py</code></td><td>~523</td><td>LangGraph state machine with four gate nodes and <code>corrective_reiter</code>.</td></tr>
+                <tr><td><code>jenkins_rca/rag.py</code></td><td>~755</td><td>RAG client, indexer, diagnostic CLI, and reset CLI.</td></tr>
+                <tr><td><code>jenkins_rca/llm.py</code></td><td>~711</td><td>One-shot path with Gemini plus OpenAI fallback.</td></tr>
+                <tr><td><code>jenkins_rca/tool_schemas.py</code></td><td>~808</td><td>Twenty-two tools exposed to the LLM.</td></tr>
+                <tr><td><code>jenkins_rca/agent_dispatch.py</code></td><td>~150</td><td>Single <code>TOOL_DISPATCH</code> map from name to callable.</td></tr>
+                <tr><td><code>jenkins_rca/jenkins.py</code></td><td>~180</td><td>Jenkins REST helpers for console, build meta, stage errors, and node info.</td></tr>
+                <tr><td><code>jenkins_rca/jira.py</code></td><td>~208</td><td>Jira REST plus ticket extraction.</td></tr>
+                <tr><td><code>jenkins_rca/github.py</code></td><td>~302</td><td>GitHub REST for commits, PRs, and file reads.</td></tr>
+                <tr><td><code>jenkins_rca/aws_tools.py</code></td><td>~351</td><td>Cross-account AWS describe via STS assume and <code>BBCTLRcaReadOnly</code>.</td></tr>
+                <tr><td><code>jenkins_rca/jenkins_mcp.py</code></td><td>~228</td><td>Jenkins MCP plugin client.</td></tr>
+                <tr><td><code>jenkins_rca/mcp_tools.py</code></td><td>~415</td><td><code>service.lookup</code>, <code>repo_read_file</code>, and <code>read_runbook</code>.</td></tr>
+                <tr><td><code>jenkins_rca/audit.py</code></td><td>~150</td><td>Audit JSON persistence and dashboard reads.</td></tr>
+                <tr><td><code>jenkins_rca/outcome_log.py</code></td><td>~167</td><td>SQLite outcome table and failure signal vocabulary.</td></tr>
+                <tr><td><code>jenkins_rca/value_validator.py</code></td><td>~179</td><td>Port, health-path, and log-path substitution.</td></tr>
+                <tr><td><code>jenkins_rca/window.py</code></td><td>~297</td><td>Log slicing and failed-stage marker extraction.</td></tr>
+                <tr><td><code>jenkins_rca/cache.py</code></td><td>~80</td><td>diskcache wrapper for RCA results, dedup, and spend tracking.</td></tr>
+                <tr><td><code>jenkins_rca/git_fresh.py</code></td><td>~150</td><td>Per-request git fetch plus reset logic.</td></tr>
+                <tr><td><code>jenkins_rca/secrets.py</code></td><td>~44</td><td>AWS Secrets Manager export into environment variables.</td></tr>
+                <tr><td><code>jenkins_rca/auth.py</code></td><td>~144</td><td>Google OAuth for the dashboard.</td></tr>
+                <tr><td><code>jenkins_rca/sanitize.py</code></td><td>-</td><td>Token redaction for PATs and API keys.</td></tr>
+                <tr><td><code>jenkins_rca/classifier.py</code></td><td>-</td><td>YAML rule loader with regex first-match-wins.</td></tr>
+                <tr><td><code>jenkins_rca/source_trace.py</code></td><td>~106</td><td>Pre-built source trace for repo navigation.</td></tr>
+                <tr><td><code>classifier_rules.yml</code></td><td>~225</td><td>Regex rules for all 18 classes.</td></tr>
+                <tr><td><code>prompts/rca_common.md</code></td><td>~310</td><td>Shared rules for evidence, overrides, BBCTL, and value provenance.</td></tr>
+                <tr><td><code>prompts/rca_agent_system.md</code></td><td>~423</td><td>Agent-path method for drilling, narration, iteration, and stopping.</td></tr>
+                <tr><td><code>prompts/rca_system.md</code></td><td>~317</td><td>One-shot path covering compliance, canary, and health-check cases.</td></tr>
+                <tr><td><code>docops/runbooks/*.md</code></td><td>14 files</td><td>Per-class drill plans and action templates.</td></tr>
+                <tr><td><code>docops/job_flows/*.md</code></td><td>9 files</td><td>Per-pipeline identity, stage tables, and gotchas.</td></tr>
+                <tr><td><code>docops/MAP.md</code></td><td>~202</td><td>Ownership matrix for concept-to-doc mapping.</td></tr>
+                <tr><td><code>docops/jenkins_pipelines_golden.md</code></td><td>~193</td><td>Cross-pipeline reference.</td></tr>
+                <tr><td><code>infra/scripts/bbctl-sync.sh</code></td><td>~135</td><td>Cron every 2h: pull, index RAG, and restart the service.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <aside class="branch-grid">
+          <div class="branch-card">
+            <h4>Branch matrix</h4>
+            <strong>feature/jenkins-rca-agent-only</strong>
+            <div class="state off">RAG off · LangGraph off</div>
+            <p>Baseline and lowest-dependency fallback path.</p>
+          </div>
+          <div class="branch-card">
+            <strong>feature/jenkins-rca-agent-RAG</strong>
+            <div class="state on">RAG on · LangGraph off</div>
+            <p>Rollback target with retrieval but imperative gates.</p>
+          </div>
+          <div class="branch-card">
+            <strong>feature/jenkins-rca-agent-RAG-LANG</strong>
+            <div class="state prod">RAG on · LangGraph on</div>
+            <p>Production branch with full graph gating and retrieval stack.</p>
+          </div>
+          <div class="branch-card">
+            <h4>Scope note</h4>
+            <p class="footnote">All visuals are embedded in this file. No SVGs, canvases, or external scripts were introduced, so the page stays easy to ship with the rest of the docs.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <footer>
+      <div><strong>Jenkins RCA · DevOps</strong></div>
+      <div>source: github.com/BLACKBUCK-LABS/bbctl · feature/jenkins-rca-agent-RAG-LANG</div>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

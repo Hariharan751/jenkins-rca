@@ -4,8 +4,6 @@ Auto-RCA service for failing Jenkins pipelines. Webhook → log classifier → R
 
 Target: < 60s end-to-end, ~$0.30 per RCA.
 
-Dashboard: <https://jenkins-rca.jinka.in/rca/v1/dashboard>
-
 ## Architecture (one-shot)
 
 ```
